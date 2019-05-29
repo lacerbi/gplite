@@ -13,6 +13,7 @@ Ns = numel(gp.post);           % Hyperparameter samples
 Nstar = size(Xstar,1);         % Number of test inputs
 
 Ncov = gp.Ncov;
+Nnoise = gp.Nnoise;
 Nmean = gp.Nmean;
 
 % Draw from hyperparameter samples
@@ -24,16 +25,14 @@ alpha = gp.post(s).alpha;
 L = gp.post(s).L;
 Lchol = gp.post(s).Lchol;
 sW = gp.post(s).sW;
-sn2_mult = gp.post(s).sn2_mult;
 
 % Extract GP hyperparameters from HYP
 ell = exp(hyp(1:D));
 sf2 = exp(2*hyp(D+1));
-sn2 = exp(2*hyp(D+2));
 
-% Compute GP mean function
-hyp_mean = hyp(Ncov+2:Ncov+1+Nmean);                % Get mean function hyperparameters
-mstar = gplite_meanfun(hyp_mean,Xstar,gp.meanfun);  % GP mean evaluated at test points
+% Compute GP mean function at test points
+hyp_mean = hyp(Ncov+Nnoise+1:Ncov+Nnoise+Nmean);
+mstar = gplite_meanfun(hyp_mean,Xstar,gp.meanfun);
 
 % Compute kernel matrix K_mat
 Kstar_mat = sq_dist(diag(1./ell)*Xstar');
@@ -66,6 +65,10 @@ Fstar = T' * randn(size(T,1),1) + fmu;
 
 % Add observation noise
 if nargout > 1
+    % Get observation noise hyperpameters and evaluate noise at test points
+    hyp_noise = hyp(Ncov+1:Ncov+Nnoise);
+    sn2 = gplite_noisefun(hyp_noise,Xstar,gp.noisefun);
+    sn2_mult = gp.post(s).sn2_mult;
     Ystar = Fstar + sqrt(sn2*sn2_mult).*randn(size(fmu));
 end
 

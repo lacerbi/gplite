@@ -1,47 +1,50 @@
-function [gp,hyp,output] = gplite_train(hyp0,Ns,X,y,meanfun,hprior,options)
+function [gp,hyp,output] = gplite_train(hyp0,Ns,X,y,meanfun,noisefun,s2,hprior,options)
 %GPLITE_TRAIN Train lite Gaussian Process hyperparameters.
 
-% Fix functions
-
 if nargin < 5; meanfun = []; end
-if nargin < 6; hprior = []; end
-if nargin < 7; options = []; end
+if nargin < 6; noisefun = []; end
+if nargin < 7; s2 = []; end
+if nargin < 8; hprior = []; end
+if nargin < 9; options = []; end
+
+%% Assign options and defaults
 
 % Default mean function is constant
 if isempty(meanfun); meanfun = 'const'; end
 
-Nopts = [];
-if isfield(options,'Nopts'); Nopts = options.Nopts; end
-if isempty(Nopts); Nopts = 3; end   % Number of hyperparameter optimization runs
+% Default noise function (constant noise, plus provided estimated noise)
+if isempty(noisefun)
+    if isempty(s2); noisefun = [1 0 0]; else; noisefun = [1 1 0]; end
+end
 
-Ninit = [];
-if isfield(options,'Ninit'); Ninit = options.Ninit; end
-if isempty(Ninit); Ninit = 2^10; end   % Initial design size for hyperparameter optimization
+% Default options
+defopts.Nopts           = 3;        % # hyperparameter optimization runs
+defopts.Ninit           = 2^10;     % Initial design size for hyperparameter optimization
+defopts.Thin            = 5;        % Thinning for hyperparameter sampling
+defopts.Burnin          = [];       % Initial burn-in for hyperparameter sampling
+defopts.DfBase          = 7;        % Default degrees of freedom for Student's t prior
+defopts.Sampler         = 'slicesample';    % Default MCMC sampler for hyperparameters
+defopts.Widths          = [];        % Default widths (used only for HMC sampler)
+defopts.LogP            = [];        % Old log probability associated to starting points
 
-Thin = [];
-if isfield(options,'Thin'); Thin = options.Thin; end
-if isempty(Thin); Thin = 5; end   % Thinning for hyperparameter sampling
+for f = fields(defopts)'
+    if ~isfield(options,f{:}) || isempty(options.(f{:}))
+        options.(f{:}) = defopts.(f{:});
+    end
+end
 
-Burnin = [];
-if isfield(options,'Burnin'); Burnin = options.Burnin; end
-if isempty(Burnin); Burnin = Thin*Ns; end   % Initial design size for hyperparameter optimization
+% Default burn-in is proportional to the thinning factor
+if isempty(options.Burnin); options.Burnin = options.Thin*Ns; end
 
-DfBase = [];
-if isfield(options,'DfBase'); DfBase = options.DfBase; end
-if isempty(DfBase); DfBase = 7; end   % Default degrees of freedom for Student's t prior
+Nopts = options.Nopts;
+Ninit = options.Ninit;
+Thin = options.Thin;
+Burnin = options.Burnin;
+DfBase = options.DfBase;
+Widths = options.Widths;
+LogP = options.LogP;
 
-Sampler = [];
-if isfield(options,'Sampler'); Sampler = options.Sampler; end
-if isempty(Sampler); Sampler = 'slicesample'; end   % Default MCMC sampler for hyperparameters
-
-Widths = [];
-if isfield(options,'Widths'); Widths = options.Widths; end
-if isempty(Widths); Widths = []; end   % Default widths (used only for HMC sampler)
-
-LogP = [];
-if isfield(options,'LogP'); LogP = options.LogP; end
-if isempty(LogP); LogP = []; end   % Old log probability associated to starting points 
-
+%% Initialize training
 
 [N,D] = size(X);            % Number of training points and dimension
 ToL = 1e-6;
@@ -51,10 +54,11 @@ y_prior = y;
 
 Ncov = D+1;     % Number of covariance function hyperparameters
 
-% Get mean function hyperparameter info
-[Nmean,meaninfo] = gplite_meanfun([],X_prior,meanfun,y_prior);
+% Get noise and mean function info
+[Nnoise,noiseinfo] = gplite_noisefun('info',X_prior,noisefun,y_prior,s2);
+[Nmean,meaninfo] = gplite_meanfun('info',X_prior,meanfun,y_prior);
 
-if isempty(hyp0); hyp0 = zeros(Ncov+Nmean+1,1); end
+if isempty(hyp0); hyp0 = zeros(Ncov+Nnoise+Nmean,1); end
 [Nhyp,N0] = size(hyp0);      % Hyperparameters
 
 LB = [];
@@ -65,19 +69,15 @@ if isempty(LB); LB = NaN(1,Nhyp); end
 if isempty(UB); UB = NaN(1,Nhyp); end
 LB = LB(:)'; UB = UB(:)';
 
-if ~isfield(hprior,'mu') || isempty(hprior.mu)
-    hprior.mu = NaN(Nhyp,1);
-end
-if ~isfield(hprior,'sigma') || isempty(hprior.sigma)
-    hprior.sigma = NaN(Nhyp,1);
-end
-if ~isfield(hprior,'df') || isempty(hprior.df)
-    hprior.df = DfBase*ones(Nhyp,1);
-end
+if ~isfield(hprior,'mu'); hprior.mu = []; end
+if ~isfield(hprior,'sigma'); hprior.sigma = []; end
+if ~isfield(hprior,'df'); hprior.df = []; end
+
 if numel(hprior.mu) < Nhyp; hprior.mu = [hprior.mu(:); NaN(Nhyp-numel(hprior.mu),1)]; end
 if numel(hprior.sigma) < Nhyp; hprior.sigma = [hprior.sigma(:); NaN(Nhyp-numel(hprior.sigma),1)]; end
 if numel(hprior.df) < Nhyp; hprior.df = [hprior.df(:); NaN(Nhyp-numel(hprior.df),1)]; end
 
+hprior.df(isnan(hprior.df)) = DfBase;
 
 % Default hyperparameter lower and upper bounds, if not specified
 width = max(X_prior) - min(X_prior);
@@ -88,26 +88,34 @@ height = max(y_prior)-min(y_prior);
 LB_ell = LB(1:D);   
 idx = isnan(LB_ell);                 LB_ell(idx) = log(width(idx))+log(ToL);
 LB_sf = LB(D+1);        if isnan(LB_sf); LB_sf = log(height)+log(ToL); end
-LB_sn = LB(Ncov+1);     if isnan(LB_sn); LB_sn = log(ToL); end
+
+% Set noise function hyperparameters lower bounds
+LB_noise = LB(Ncov+1:Ncov+Nnoise);
+idx = isnan(LB_noise);
+LB_noise(idx) = noiseinfo.LB(idx);
 
 % Set mean function hyperparameters lower bounds
-LB_mean = LB(Ncov+2:D+2+Nmean);
+LB_mean = LB(Ncov+Nnoise+1:Ncov+Nnoise+Nmean);
 idx = isnan(LB_mean);
 LB_mean(idx) = meaninfo.LB(idx);
 
 UB_ell = UB(1:D);   
 idx = isnan(UB_ell);    UB_ell(idx) = log(width(idx)*10);
 UB_sf = UB(D+1);        if isnan(UB_sf); UB_sf = log(height*10); end
-UB_sn = UB(Ncov+1);     if isnan(UB_sn); UB_sn = log(height); end
+
+% Set noise function hyperparameters upper bounds
+UB_noise = UB(Ncov+1:Ncov+Nnoise);
+idx = isnan(UB_noise);
+UB_noise(idx) = noiseinfo.UB(idx);
 
 % Set mean function hyperparameters upper bounds
-UB_mean = UB(Ncov+2:D+2+Nmean);
+UB_mean = UB(Ncov+Nnoise+1:Ncov+Nnoise+Nmean);
 idx = isnan(UB_mean);
 UB_mean(idx) = meaninfo.UB(idx);
 
 % Create lower and upper bounds
-LB = [LB_ell,LB_sf,LB_sn,LB_mean];
-UB = [UB_ell,UB_sf,UB_sn,UB_mean];
+LB = [LB_ell,LB_sf,LB_noise,LB_mean];
+UB = [UB_ell,UB_sf,UB_noise,UB_mean];
 UB = max(LB,UB);
 
 % Plausible bounds for generation of starting points
@@ -117,14 +125,14 @@ PUB_ell = log(width);
 PLB_sf = log(height)+0.5*log(ToL);
 PUB_sf = log(height);
 
-PLB_sn = 0.5*log(ToL);
-PUB_sn = log(std(y_prior));
+PLB_noise = noiseinfo.PLB;
+PUB_noise = noiseinfo.PUB;
 
 PLB_mean = meaninfo.PLB;
 PUB_mean = meaninfo.PUB;
 
-PLB = [PLB_ell,PLB_sf,PLB_sn,PLB_mean];
-PUB = [PUB_ell,PUB_sf,PUB_sn,PUB_mean];
+PLB = [PLB_ell,PLB_sf,PLB_noise,PLB_mean];
+PUB = [PUB_ell,PUB_sf,PUB_noise,PUB_mean];
 
 PLB = min(max(PLB,LB),UB);
 PUB = max(min(PUB,UB),LB);
@@ -142,7 +150,7 @@ hyp = zeros(Nhyp,Nopts);
 nll = [];
 
 % Initialize GP
-gp = gplite_post(hyp0(:,1),X,y,meanfun);
+gp = gplite_post(hyp0(:,1),X,y,meanfun,noisefun,s2);
 
 % Define objective functions for optimization
 gpoptimize_fun = @(hyp_) gp_objfun(hyp_(:),gp,hprior,0,0);
@@ -158,10 +166,10 @@ if ~isempty(LogP) && Ns > 0
     
     ESS_thresh = 0.5;
     % Little change, keep sampling
-    if ESS_frac > ESS_thresh && strcmpi(Sampler,'slicelite')
+    if ESS_frac > ESS_thresh && strcmpi(options.Sampler,'slicelite')
         Ninit = 0;
         Nopts = 0;
-        if strcmpi(Sampler,'slicelite')
+        if strcmpi(options.Sampler,'slicelite')
             Thin_eff = max(1,round(Thin*(1 - (ESS_frac-ESS_thresh)/(1-ESS_thresh))));
             Burnin = Thin_eff*Ns;
             Thin = 1;
@@ -214,7 +222,7 @@ if Ns > 0
     
     Ns_eff = Ns*Thin;   % Effective number of samples (thin after)
     
-    switch lower(Sampler)
+    switch lower(options.Sampler)
         case 'slicesample'
             gpsample_fun = @(hyp_) gp_objfun(hyp_(:),gp,hprior,0,1);
             sampleopts.Thin = 1;
@@ -355,7 +363,7 @@ if nargin < 5 || isempty(swapsign); swapsign = 0; end
 compute_grad = nargout > 1 && ~gpflag;
 
 if gpflag
-    gp = gplite_post(hyp(1:end,:),gp.X,gp.y,gp.meanfun);
+    gp = gplite_post(hyp(1:end,:),gp.X,gp.y,gp.meanfun,gp.noisefun,gp.s2);
     nlZ = gp;
 else
 

@@ -1,5 +1,5 @@
-function [m,dm] = gplite_meanfun(hyp,X,meanfun,y)
-%GPLITE_MEANFUN Mean function for lite Gaussian Process regression.
+function [K,dK] = gplite_covfun(hyp,X,covfun,Xstar)
+%GPLITE_COVFUN Covariance function for lite Gaussian Process regression.
 %   M = GPLITE_MEANFUN(HYP,X,MEANFUN) computes the GP mean function
 %   MEANFUN evaluated at test points X. HYP is a single column vector of mean 
 %   function hyperparameters. MEANFUN can be a scalar or a character array
@@ -34,13 +34,13 @@ function [m,dm] = gplite_meanfun(hyp,X,meanfun,y)
 %      LB  Hyperparameter lower bounds
 %      UB  Hyperparameter upper bounds
 
-if nargin < 4; y = []; end
+if nargin < 4; Xstar = []; end
 
-if isa(meanfun,'function_handle')
+if isa(covfun,'function_handle')
     if nargout > 1
-        [m,dm] = meanfun(hyp,X);
+        [K,dK] = covfun(hyp,X);
     else
-        m = meanfun(hyp,X);
+        K = covfun(hyp,X);
     end
     return;
 end
@@ -48,54 +48,30 @@ end
 [N,D] = size(X);            % Number of training points and dimension
 
 % Read number of mean function hyperparameters
-switch meanfun
+switch covfun(1)
     case {0,'0','zero'}
-        Nmean = 0;
-        meanfun = 0;
+        Ncov = D+1;
+        covfun = 0;
     case {1,'1','const'}
-        Nmean = 1;
+        Ncov = 1;
         meanfun = 1;
-    case {2,'2','linear'}
-        Nmean = 1 + D;
-        meanfun = 2;
-    case {3,'3','quad'}
-        Nmean = 1 + 2*D;        
-        meanfun = 3;
-    case {4,'4','negquad'}
-        Nmean = 1 + 2*D;
-        meanfun = 4;
-    case {5,'5','posquad'}
-        Nmean = 1 + 2*D;
-        meanfun = 5;
-    case {6,'6','se'}
-        Nmean = 2 + 2*D;
-        meanfun = 6;
-    case {7,'7','negse'}
-        Nmean = 2 + 2*D;
-        meanfun = 7;
-    case {8,'8','negquadse'}
-        Nmean = 2 + 4*D;
-        meanfun = 8;
-    case {9,'9','posquadse'}
-        Nmean = 2 + 4*D;
-        meanfun = 9;
-    otherwise
-        if isnumeric(meanfun); meanfun = num2str(meanfun); end
-        error('gplite_meanfun:UnknownMeanFun',...
-            ['Unknown mean function identifier: [' meanfun '].']);
+%    otherwise
+%        if isnumeric(meanfun); meanfun = num2str(meanfun); end
+%        error('gplite_meanfun:UnknownMeanFun',...
+%            ['Unknown mean function identifier: [' meanfun '].']);
 end
 
 % Return number of mean function hyperparameters and additional info
 if ischar(hyp)
-    m = Nmean;
+    K = Ncov;
     if nargout > 1
         ToL = 1e-6;
         Big = exp(3);
-        dm.LB = -Inf(1,Nmean);
-        dm.UB = Inf(1,Nmean);
-        dm.PLB = -Inf(1,Nmean);
-        dm.PUB = Inf(1,Nmean);
-        dm.x0 = NaN(1,Nmean);
+        dm.LB = -Inf(1,Ncov);
+        dm.UB = Inf(1,Ncov);
+        dm.PLB = -Inf(1,Ncov);
+        dm.PUB = Inf(1,Ncov);
+        dm.x0 = NaN(1,Ncov);
         
         if meanfun >= 1                     % m0
             h = max(y) - min(y);    % Height
@@ -120,42 +96,6 @@ if ischar(hyp)
                 dm.PUB(D+2:2*D+1) = delta.^2;                
             end
             
-        elseif meanfun >= 4 && meanfun <= 9
-            
-            % Redefine limits for m0 (meaning depends on mean func type)
-            h = max(y) - min(y);    % Height
-            switch meanfun
-                case 4
-                    dm.LB(1) = min(y);
-                    dm.UB(1) = max(y) + h;
-                    dm.PLB(1) = median(y);
-                    dm.PUB(1) = max(y);
-                    dm.x0(1) = quantile1(y,0.9);
-                case 5
-                    dm.LB(1) = min(y) - h;
-                    dm.UB(1) = max(y);
-                    dm.PLB(1) = min(y);
-                    dm.PUB(1) = median(y);
-                    dm.x0(1) = quantile1(y,0.1);
-                case 6
-                    dm.LB(1) = min(y) - h;
-                    dm.UB(1) = max(y);
-                    dm.PLB(1) = min(y);
-                    dm.PUB(1) = median(y);
-                    dm.x0(1) = quantile1(y,0.1);
-                case 7
-                    dm.LB(1) = min(y);
-                    dm.UB(1) = max(y) + h;
-                    dm.PLB(1) = median(y);
-                    dm.PUB(1) = max(y);
-                    dm.x0(1) = quantile1(y,0.9);                    
-                case {8,9}
-                    dm.LB(1) = min(y) - h;
-                    dm.UB(1) = max(y) + h;
-                    dm.PLB(1) = min(y);
-                    dm.PUB(1) = max(y);
-                    dm.x0(1) = median(y);
-            end
             
             w = max(X) - min(X);                    % Width
 
@@ -239,9 +179,9 @@ end
 
 [Nhyp,Ns] = size(hyp);      % Hyperparameters and samples
 
-if Nhyp ~= Nmean
+if Nhyp ~= Ncov
     error('gplite_meanfun:WrongMeanHyp', ...
-        ['Expected ' num2str(Nmean) ' mean function hyperparameters, ' num2str(Nhyp) ' passed instead.']);
+        ['Expected ' num2str(Ncov) ' mean function hyperparameters, ' num2str(Nhyp) ' passed instead.']);
 end
 if Ns > 1
     error('gplite_meanfun:nosampling', ...
@@ -252,90 +192,30 @@ end
 compute_grad = nargout > 1;
 
 if compute_grad     % Allocate space for gradient
-    dm = zeros(N,Nmean);    
+    dK = zeros(N,N,Ncov);    
 end
 
-% Compute mean function    
+% Compute mean function
+ell = exp(hyp(1:D));
+sf2 = exp(2*hyp(D+1));
+
 switch meanfun
-    case 0  % Zero
-        m = zeros(N,1);
-        if compute_grad; dm = []; end
-    case 1  % Constant
-        m0 = hyp(1);
-        m = m0*ones(N,1);
-        if compute_grad; dm = ones(N,1); end
-    case 2  % Linear
-        m0 = hyp(1);
-        a = hyp(1+(1:D))';
-        m = m0 + sum(bsxfun(@times,a,X),2);
-        if compute_grad
-            dm(:,1) = ones(N,1); 
-            dm(:,2:D+1) = X; 
-        end
-    case 3  % Quadratic
-        m0 = hyp(1);
-        a = hyp(1+(1:D))';
-        b = hyp(1+D+(1:D))';
-        m = m0 + sum(bsxfun(@times,a,X),2) + sum(bsxfun(@times,b,X.^2),2);
-        if compute_grad
-            dm(:,1) = ones(N,1); 
-            dm(:,2:D+1) = X; 
-            dm(:,D+2:2*D+1) = X.^2; 
-        end
-    case {4,5}  % Negative (4) and positive (5) quadratic
-        if meanfun == 4; sgn = -1; else; sgn = 1; end
-        m0 = hyp(1);
-        xm = hyp(1+(1:D))';
-        omega = exp(hyp(D+1+(1:D)))';
-        z2 = bsxfun(@rdivide,bsxfun(@minus,X,xm),omega).^2;
-        m = m0 + (sgn*0.5)*sum(z2,2);
-        if compute_grad
-            dm(:,1) = ones(N,1);
-            dm(:,2:D+1) = (-sgn)*bsxfun(@rdivide,bsxfun(@minus,X,xm), omega.^2);
-            dm(:,D+2:2*D+1) = (-sgn)*z2;        
-        end
-    case {6,7}  % Squared exponential (6) and negative squared exponential (7) 
-        m0 = hyp(1);
-        xm = hyp(1+(1:D))';
-        omega = exp(hyp(D+1+(1:D)))';
-        h = exp(hyp(2*D+2));
-        z2 = bsxfun(@rdivide,bsxfun(@minus,X,xm),omega).^2;
-        if meanfun == 6
-            se = h*exp(-0.5*sum(z2,2));
+    case 0  % SE ard
+        if isempty(Xstar)        
+            K = sq_dist(diag(1./ell)*X');
+        elseif ischar(Xstar)
+            K = zeros(size(X,1),1);
         else
-            se = -h*exp(-0.5*sum(z2,2));
+            K = sq_dist(diag(1./ell)*X',diag(1./ell)*Xstar');
         end
-        m = m0 + se;
+        K = sf2 * exp(-K/2);
+            
         if compute_grad
-            dm(:,1) = ones(N,1);
-            dm(:,2:D+1) = bsxfun(@times, bsxfun(@rdivide,bsxfun(@minus,X,xm), omega.^2), se);
-            dm(:,D+2:2*D+1) = bsxfun(@times, z2, se);
-            dm(:,2*D+2) = se;
-        end
-    case {8,9}  % Sum of negative (8) or positive (9) quadratic and squared exponential
-        if meanfun == 8; sgn = -1; else; sgn = 1; end        
-        m0 = hyp(1);
-        xm = hyp(1+(1:D))';
-        omega = exp(hyp(D+1+(1:D)))';
-        z2 = bsxfun(@rdivide,bsxfun(@minus,X,xm),omega).^2;
-        
-        xm_se = hyp(2*D+1+(1:D))';
-        omega_se = exp(hyp(3*D+1+(1:D)))';
-        h_se = hyp(4*D+2);
-        z2_se = bsxfun(@rdivide,bsxfun(@minus,X,xm_se),omega_se).^2;
-        se0 = exp(-0.5*sum(z2_se,2));
-        se = h_se*se0;
-        
-        m = m0 + (sgn*0.5)*sum(z2,2) + se;
-        if compute_grad
-            dm(:,1) = ones(N,1);
-            dm(:,2:D+1) = (-sgn)*bsxfun(@rdivide,bsxfun(@minus,X,xm), omega.^2);
-            dm(:,D+2:2*D+1) = (-sgn)*z2;        
-            dm(:,2*D+1+(1:D)) = bsxfun(@times, bsxfun(@rdivide,bsxfun(@minus,X,xm_se), omega_se.^2), se);
-            dm(:,3*D+1+(1:D)) = bsxfun(@times, z2_se, se);
-            dm(:,4*D+2) = se0;
-        end
-        
+            for i = 1:D             % Grad of cov length scales
+                dK(:,:,i) = K .* sq_dist(X(:,i)'/ell(i));
+            end
+            dK(:,:,i) = 2*K;        % Grad of cov output scale
+        end        
 end
 
 end

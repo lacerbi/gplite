@@ -6,16 +6,12 @@ Ns = numel(gp.post);           % Hyperparameter samples
 Nx = 1e3;                      % Number of points for visualization
 
 % Loop over hyperparameter samples
+ell = zeros(D,Ns);
 for s = 1:Ns
     hyp = gp.post(s).hyp;
-
-    % Extract GP hyperparameters from HYP
-    ell(:,s) = exp(hyp(1:D));
-    sf2(:,s) = exp(2*hyp(D+1));
-    sn2(:,s) = exp(2*hyp(D+2));
+    ell(:,s) = exp(hyp(1:D));       % Extract length scales from HYP
 end
-
-ellbar = sqrt(mean(ell.^2,2));
+ellbar = sqrt(mean(ell.^2,2));      % Mean length scale
 
 lb = min(gp.X) - ellbar';
 ub = max(gp.X) + ellbar';

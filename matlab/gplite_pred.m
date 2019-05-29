@@ -1,9 +1,10 @@
-function [ymu,ys2,fmu,fs2,lp] = gplite_pred(gp,Xstar,ystar,ssflag)
+function [ymu,ys2,fmu,fs2,lp] = gplite_pred(gp,Xstar,ystar,ssflag,s2star)
 %GPLITE_PRED Prediction for lite Gaussian Processes regression.
 
 % HYP is a column vector. Multiple columns correspond to multiple samples.
 if nargin < 3; ystar = []; end
 if nargin < 4 || isempty(ssflag); ssflag = false; end
+if nargin < 5; s2star = []; end
 
 [N,D] = size(gp.X);            % Number of training points and dimension
 Ns = numel(gp.post);           % Hyperparameter samples
@@ -23,12 +24,8 @@ else
 end
 
 Ncov = gp.Ncov;
+Nnoise = gp.Nnoise;
 Nmean = gp.Nmean;
-
-% Stripped-down representation
-if ~isfield(gp.post(1),'alpha')
-    
-end
 
 % Loop over hyperparameter samples
 for s = 1:Ns
@@ -43,10 +40,14 @@ for s = 1:Ns
     % Extract GP hyperparameters from HYP
     ell = exp(hyp(1:D));
     sf2 = exp(2*hyp(D+1));
-    sn2 = exp(2*hyp(D+2));
     
-    hyp_mean = hyp(Ncov+2:Ncov+1+Nmean);                % Get mean function hyperparameters
-    mstar = gplite_meanfun(hyp_mean,Xstar,gp.meanfun);  % GP mean evaluated at test points
+    % Get observation noise hyperpameters and evaluate noise at test points
+    hyp_noise = hyp(Ncov+1:Ncov+Nnoise);
+    sn2_star = gplite_noisefun(hyp_noise,Xstar,gp.noisefun,ystar,s2star);
+    
+    % Get mean function hyperpameters and evaluate GP mean at test points
+    hyp_mean = hyp(Ncov+Nnoise+1:Ncov+Nnoise+Nmean);
+    mstar = gplite_meanfun(hyp_mean,Xstar,gp.meanfun);
 
     % Compute cross-kernel matrix Ks_mat
     Ks_mat = sq_dist(diag(1./ell)*gp.X',diag(1./ell)*Xstar');
@@ -72,11 +73,11 @@ for s = 1:Ns
         else
             fs2(:,s) = kss;
         end
-        ys2(:,s) = fs2(:,s) + sn2*sn2_mult;           % observed variance
+        ys2(:,s) = fs2(:,s) + sn2_star*sn2_mult;           % observed variance
 
         % Compute log probability of test inputs
         if ~isempty(ystar) && nargout > 4
-            lp(:,s) = -(ystar-ymu).^2./(sn2*sn2_mult)/2-log(2*pi*sn2*sn2_mult)/2;
+            lp(:,s) = -(ystar-ymu).^2./(sn2_star*sn2_mult)/2-log(2*pi*sn2_star*sn2_mult)/2;
         end
     end
 
