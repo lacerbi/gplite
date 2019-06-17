@@ -9,10 +9,6 @@ Ncov = gp.Ncov;
 Nnoise = gp.Nnoise;
 Nmean = gp.Nmean;
 
-% Extract GP covariance hyperparameters from HYP
-ell = exp(hyp(1:D));
-sf2 = exp(2*hyp(D+1));
-
 % Evaluate observation noise on training inputs
 hyp_noise = hyp(Ncov+1:Ncov+Nnoise); % Get noise hyperparameters
 if compute_nlZ_grad
@@ -33,8 +29,19 @@ end
 %% Observed covariance matrix inversion
 
 % Compute kernel matrix K_mat
-K_mat = sq_dist(diag(1./ell)*gp.X');
-K_mat = sf2 * exp(-K_mat/2);
+if gp.covfun(1) == 1
+    ell = exp(hyp(1:D));
+    sf2 = exp(2*hyp(D+1));    
+    K_mat = sq_dist(diag(1./ell)*gp.X');
+    K_mat = sf2 * exp(-K_mat/2);
+else
+    hyp_cov = hyp(1:Ncov); % Get covariance function hyperparameters
+    if compute_nlZ_grad
+        [K_mat,dK_mat] = gplite_covfun(hyp_cov,gp.X,gp.covfun,[]);
+    else
+        K_mat = gplite_covfun(hyp_cov,gp.X,gp.covfun,[]);        
+    end
+end
 
 % Use Cholesky representation of posterior for non-small, scalar noise
 Lchol = isscalar(sn2) && sn2 >= 1e-6;
@@ -82,11 +89,17 @@ if compute_nlZ
         dnlZ = zeros(Nhyp,1);    % allocate space for derivatives
         Q = L\(L'\eye(N))/sl - alpha*alpha';    % precomputed
 
-        for i = 1:D                             % Grad of cov length scales
-            K_temp = K_mat .* sq_dist(gp.X(:,i)'/ell(i));
-            dnlZ(i) = sum(sum(Q.*K_temp))/2;
+        if gp.covfun(1) == 1
+            for i = 1:D                             % Grad of cov length scales
+                K_temp = K_mat .* sq_dist(gp.X(:,i)'/ell(i));
+                dnlZ(i) = sum(sum(Q.*K_temp))/2;
+            end
+            dnlZ(D+1) = sum(sum(Q.*(2*K_mat)))/2;   % Grad of cov output scale
+        else            
+            for i = 1:Ncov                          % Grad of cov hyperparameters
+                dnlZ(i) = sum(sum(Q.*dK_mat(:,:,i)))/2;
+            end
         end
-        dnlZ(D+1) = sum(sum(Q.*(2*K_mat)))/2;   % Grad of cov output scale
 
         % Gradient of GP likelihood
         if isscalar(sn2)

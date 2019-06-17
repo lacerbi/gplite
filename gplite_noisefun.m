@@ -1,40 +1,51 @@
 function [sn2,dsn2] = gplite_noisefun(hyp,X,noisefun,y,s2)
-%GPLITE_NOISEFUN Likelihood function for lite Gaussian Process regression.
-%   M = GPLITE_LIKFUN(HYP,X,LIKFUN) computes the GP likelihood function
-%   LIKFUN (observation noise) evaluated at test points X. HYP is a single 
-%   column vector of likelihood function hyperparameters. LIKFUN is a 
-%   numeric array specifying features of the likelihood function, as follows:
+%GPLITE_NOISEFUN Noise function for lite Gaussian Process regression.
+%   SN2 = GPLITE_NOISEFUN(HYP,X,NOISEFUN) computes the GP noise function
+%   NOISEFUN, that is the variance of observation noise evaluated at test 
+%   points X. HYP is a single column vector of noise function 
+%   hyperparameters. NOISEFUN is a numeric array whose elements specify 
+%   features of the noise function, as follows:
 %
 %                       FEATURE DESCRIPTION           EXTRA HYPERPARAMETERS
 %
-%      LIKFUN(1) represents base noise
+%      NOISEFUN(1) represents base constant noise
 %      0                no constant noise                          0
 %      1                constant noise                             1
 %
-%      LIKFUN(2) represents user-provided provided noise
+%      NOISEFUN(2) represents input-dependent provided noise
 %      0                ignore provided noise                      0
-%      1                use provided noise as is                   1
-%      2                uncertainty in provided noise              2
+%      1                use provided noise as is                   0
+%      2                scale uncertainty in provided noise        1
 %
-%      LIKFUN(3) represents approximate output-dependent noise
+%      NOISEFUN(3) represents approximate output-dependent noise
 %      0                no output-dependent noise                  0
 %      1                rectified linear output-dependent noise    2
 %
-%   [M,DM] = GPLITE_MEANFUN(HYP,X,MEANFUN) also computes the gradient DM 
-%   with respect to GP hyperparamters. DM is a N-by-NMEAN matrix, where
-%   each row represent the gradient with respect to the NMEAN hyperparameters
-%   for each one of the N test point.
+%   The total noise variance is obtained by summing the independent 
+%   contribution of each noise feature (if present).
 %
-%   NLIK = GPLITE_LIKFUN('info',X,LIKFUN) returns the number of likelihood 
+%   SN2 = GPLITE_NOISEFUN(HYP,X,NOISEFUN,[],S2) also takes as input a N-by-1
+%   array S2 of estimated noise variance associated with each training input 
+%   vector in X (used only if NOISEFUN(2) is different than 0).
+%  
+%   [SN2,DSN2] = GPLITE_NOISEFUN(HYP,X,NOISEFUN) also computes the gradient 
+%   DSN2 with respect to GP hyperparameters. If the noise is input or output
+%   dependent, DSN2 is a N-by-NNOISE matrix, where each row represents the 
+%   gradient with respect to noise hyperparameters for a given training
+%   input. Otherwise, DSN2 is a 1-by-NNOISE matrix array.
+%
+%   NNOISE = GPLITE_NOISEFUN('info',X,NOISEFUN) returns the number of noise 
 %   function hyperparameters requested by likelihood function LIKFUN.
 %
-%   [NLIK,LIKINFO] = GPLITE_LIKFUN([],X,LIKFUN,Y), where X is the matrix
-%   of training inputs and Y the matrix of training targets, also returns a 
-%   struct LIKINFO with additional information about mean function
-%   hyperparameters, with fields
-% 
-%      LB  Hyperparameter lower bounds
-%      UB  Hyperparameter upper bounds
+%   [NNOISE,NOISEINFO] = GPLITE_NOISEFUN([],X,NOISEFUN,Y,S2), where X is 
+%   the matrix of training inputs, Y the matrix of training targets, and S2
+%   an optional matrix of estimated noise variance, also returns a struct 
+%   NOISEINFO with additional information about the noise function
+%   hyperparameters, with fields: LB (lower bounds); UB (upper bounds); PLB
+%   (plausible lower bounds); PUB (plausible upper bounds); x0 (starting
+%   point); noisefun (NOISEFUN numerical identifier).
+%
+%   See also GPLITE_COVFUN, GPLITE_MEANFUN.
 
 if nargin < 4; y = []; end
 if nargin < 5 || isempty(s2); s2 = 0; end
@@ -42,7 +53,7 @@ if nargin < 5 || isempty(s2); s2 = 0; end
 [N,D] = size(X);            % Number of training points and dimension
 
 if numel(noisefun) < 3
-    noisefun = [noisefun(:)', zeros(3-numel(noisefun))];
+    noisefun = [noisefun(:)', zeros(1,3-numel(noisefun))];
 end
 
 % Compute number of likelihood function hyperparameters
@@ -73,7 +84,7 @@ end
 if ischar(hyp)
     sn2 = Nnoise;
     if nargout > 1
-        height = max(y) - min(y);    % Height
+        
         ToL = 1e-6;
         Big = exp(3);
         dsn2.LB = -Inf(1,Nnoise);
@@ -81,6 +92,9 @@ if ischar(hyp)
         dsn2.PLB = -Inf(1,Nnoise);
         dsn2.PUB = Inf(1,Nnoise);
         dsn2.x0 = NaN(1,Nnoise);
+
+        if numel(y) <= 1; y = [0;1]; end        
+        height = max(y) - min(y);
         
         idx = 1;
         
@@ -127,7 +141,7 @@ if ischar(hyp)
         idx_nan = isnan(dsn2.x0);
         dsn2.x0(idx_nan) = 0.5*(dsn2.PLB(idx_nan) + dsn2.PUB(idx_nan));
         
-        dsn2.likfun = noisefun;
+        dsn2.noisefun = noisefun;
         
     end
     

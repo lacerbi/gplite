@@ -12,14 +12,15 @@ s2(idx) = 1e-4;
 y(idx(randperm(numel(idx)))) = -linspace(1000,1001,numel(idx))';
 
 hyp0 = [];          % Starting hyperparameter vector for optimization
-Ns = 10;             % Number of hyperparameter samples
-meanfun = 4;   % GP mean function
+Ns = 10;            % Number of hyperparameter samples
+covfun = [3 3];     % GP covariance function
+meanfun = 4;        % GP mean function
 noisefun = [1 0 0]; % Constant plus user-provided noise
 hprior = [];        % Prior over hyperparameters
 options = [];       % Additional options
 
 % Set prior over noise hyperparameters
-gp = gplite_post([],X,y,meanfun,noisefun,s2);
+gp = gplite_post([],X,y,covfun,meanfun,noisefun,s2);
 hprior = gplite_hypprior(gp);
 
 hprior.mu(gp.Ncov+1) = log(1e-3);
@@ -36,7 +37,7 @@ if gp.Nnoise > 1
 end
 
 % Train GP on data
-[gp,hyp,output] = gplite_train(hyp0,Ns,X,y,meanfun,noisefun,s2,hprior,options);
+[gp,hyp,output] = gplite_train(hyp0,Ns,X,y,covfun,meanfun,noisefun,s2,hprior,options);
 
 hyp             % Hyperparameter samples
 
@@ -48,19 +49,4 @@ xstar = linspace(-15,15,200)';   % Test points
 % Plot data and GP prediction
 close all;
 figure(1); hold on;
-plot(xstar,fmu+sqrt(fs2),'-','Color',0.8*[1 1 1],'LineWidth',1);
-plot(xstar,fmu-sqrt(fs2),'-','Color',0.8*[1 1 1],'LineWidth',1);
-plot(xstar,fmu,'k-','LineWidth',1);
-scatter(X,y,'ob','MarkerFaceColor','b');
-
-xlabel('x');
-ylabel('f(x)');
-set(gca,'TickDir','out');
-box off;
-set(gcf,'Color','w');
-
-%xlim([-10 10]);
-%ylim([-5 5]);
-
-
-
+gplite_plot(gp);

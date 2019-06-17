@@ -29,10 +29,12 @@ function [m,dm] = gplite_meanfun(hyp,X,meanfun,y)
 %   [NMEAN,MEANINFO] = GPLITE_MEANFUN([],X,MEANFUN,Y), where X is the matrix
 %   of training inputs and Y the matrix of training targets, also returns a 
 %   struct MEANINFO with additional information about mean function
-%   hyperparameters, with fields
-% 
-%      LB  Hyperparameter lower bounds
-%      UB  Hyperparameter upper bounds
+%   hyperparameters, with fields: LB (lower bounds); UB (upper bounds); PLB
+%   (plausible lower bounds); PUB (plausible upper bounds); x0 (starting
+%   point); meanfun (MEANFUN numerical identifier), meanfun_name (MEANFUN
+%   name).
+%
+%   See also GPLITE_COVFUN, GPLITE_NOISEFUN.
 
 if nargin < 4; y = []; end
 
@@ -96,6 +98,8 @@ if ischar(hyp)
         dm.PLB = -Inf(1,Nmean);
         dm.PUB = Inf(1,Nmean);
         dm.x0 = NaN(1,Nmean);
+        
+        if numel(y) <= 1; y = [0;1]; end
         
         if meanfun >= 1                     % m0
             h = max(y) - min(y);    % Height
@@ -208,26 +212,16 @@ if ischar(hyp)
         
         dm.meanfun = meanfun;
         switch meanfun
-            case 0
-                dm.meanfun_name = 'zero';
-            case 1
-                dm.meanfun_name = 'const';
-            case 2
-                dm.meanfun_name = 'linear';
-            case 3
-                dm.meanfun_name = 'quad';
-            case 4
-                dm.meanfun_name = 'negquad';
-            case 5
-                dm.meanfun_name = 'posquad';
-            case 6
-                dm.meanfun_name = 'se';
-            case 7
-                dm.meanfun_name = 'negse';
-            case 8
-                dm.meanfun_name = 'negquadse';
-            case 9
-                dm.meanfun_name = 'posquadse';
+            case 0; dm.meanfun_name = 'zero';
+            case 1; dm.meanfun_name = 'const';
+            case 2; dm.meanfun_name = 'linear';
+            case 3; dm.meanfun_name = 'quad';
+            case 4; dm.meanfun_name = 'negquad';
+            case 5; dm.meanfun_name = 'posquad';
+            case 6; dm.meanfun_name = 'se';
+            case 7; dm.meanfun_name = 'negse';
+            case 8; dm.meanfun_name = 'negquadse';
+            case 9; dm.meanfun_name = 'posquadse';
         end
         
     end

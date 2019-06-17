@@ -1,12 +1,13 @@
-function gplite_test(hyp,X,y,meanfun,noisefun,s2)
+function gplite_test(hyp,X,y,covfun,meanfun,noisefun,s2)
 %GPLITE_TEST Test computations for lite GP functions.
 
 if nargin < 1; hyp = []; end
 if nargin < 2; X = []; end
 if nargin < 3; y = []; end
-if nargin < 4 || isempty(meanfun); meanfun = 'negquad'; end
-if nargin < 5; noisefun = []; end
-if nargin < 6; s2 = []; end
+if nargin < 4 || isempty(covfun); covfun = 'seard'; end
+if nargin < 5 || isempty(meanfun); meanfun = 'zero'; end
+if nargin < 6; noisefun = []; end
+if nargin < 7; s2 = []; end
 
 if isempty(noisefun)
     if isempty(s2); noisefun = [1 0 0]; else; noisefun = [1 1 0]; end
@@ -20,6 +21,7 @@ else
     D = size(X,2);
 end
 
+Ncov = gplite_covfun('info',X,covfun)
 Nnoise = gplite_noisefun('info',X,noisefun)
 Nmean = gplite_meanfun('info',X,meanfun)
 
@@ -28,12 +30,13 @@ if isempty(hyp)
     hyp = [randn(D,Ns); 0.2*randn(1,Ns); 0.3*randn(Nnoise,Ns); randn(Nmean,Ns)];
 end
 
-if isempty(y)   % Ideally should generate from the GP but this is fine for now
-    sf2 = mean(2*exp(hyp(D+1,:)),2);
-    y = sqrt(sf2)*randn(N,1);
-end
 if isempty(s2)
     if noisefun(2) > 0; s2 = 0.1*exp(randn(N,1)); end
+end
+
+if isempty(y)   % Generate from the GP prior
+    gp = gplite_post(hyp(:,1),X,[],covfun,meanfun,noisefun,s2);    
+    [~,y] = gplite_rnd(gp,X);
 end
     
 
@@ -42,7 +45,7 @@ end
 
 hyp0 = hyp(:,1);
 
-gp = gplite_post(hyp0,X,y,meanfun,noisefun,s2);
+gp = gplite_post(hyp0,X,y,covfun,meanfun,noisefun,s2);
 
 fprintf('---------------------------------------------------------------------------------\n');
 fprintf('Check GP marginal likelihood computation...\n\n');
@@ -61,19 +64,22 @@ fprintf('-----------------------------------------------------------------------
 fprintf('Check rank-1 GP updates...\n\n');
 
 idx = ceil(size(X,1)/2);
-gp1 = gplite_post(hyp0,X(1:idx,:),y(1:idx),meanfun,noisefun,s2(1:min(idx,size(s2,1))));
+gp1 = gplite_post(hyp0,X(1:idx,:),y(1:idx),covfun,meanfun,noisefun,s2(1:min(idx,size(s2,1))));
 for ii = idx+1:size(gp.X,1)
     xstar = X(ii,:);
     ystar = y(ii);
     if ~isempty(s2); s2star = s2(ii); else; s2star = []; end    
-    gp1 = gplite_post(gp1,xstar,ystar,[],[],s2star,1);
+    gp1 = gplite_post(gp1,xstar,ystar,[],[],[],s2star,1);
 end
 
 ff = fields(gp.post)';
 for i = 1:numel(ff)
-    update1_errs(i) = sum(gp.post.(ff{i})(:) - gp.post.(ff{i})(:));
+    update1_errs(i) = sum(gp.post.(ff{i})(:) - gp1.post.(ff{i})(:));
 end
 update1_errs
+
+% Test plotting
+gplite_plot(gp);
 
 
 

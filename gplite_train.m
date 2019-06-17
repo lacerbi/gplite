@@ -1,13 +1,22 @@
-function [gp,hyp,output] = gplite_train(hyp0,Ns,X,y,meanfun,noisefun,s2,hprior,options)
+function [gp,hyp,output] = gplite_train(hyp0,Ns,X,y,covfun,meanfun,noisefun,s2,hprior,options)
 %GPLITE_TRAIN Train lite Gaussian Process hyperparameters.
+%
+% Documentation to be written.
+%
+% Luigi Acerbi 2019
 
-if nargin < 5; meanfun = []; end
-if nargin < 6; noisefun = []; end
-if nargin < 7; s2 = []; end
-if nargin < 8; hprior = []; end
-if nargin < 9; options = []; end
+
+if nargin < 5; covfun = []; end
+if nargin < 6; meanfun = []; end
+if nargin < 7; noisefun = []; end
+if nargin < 8; s2 = []; end
+if nargin < 9; hprior = []; end
+if nargin < 10; options = []; end
 
 %% Assign options and defaults
+
+% Default covariance function is squared exponential ARD
+if isempty(covfun); covfun = 'seard'; end
 
 % Default mean function is constant
 if isempty(meanfun); meanfun = 'const'; end
@@ -44,22 +53,16 @@ DfBase = options.DfBase;
 Widths = options.Widths;
 LogP = options.LogP;
 
-%% Initialize training
+%% Initialize inference of GP hyperparameters (bounds, priors, etc.)
 
-[N,D] = size(X);            % Number of training points and dimension
-ToL = 1e-6;
+% Get covariance/noise/mean functions info
+[Ncov,covinfo] = gplite_covfun('info',X,covfun,[],y);
+[Nnoise,noiseinfo] = gplite_noisefun('info',X,noisefun,y,s2);
+[Nmean,meaninfo] = gplite_meanfun('info',X,meanfun,y);
 
-X_prior = X;
-y_prior = y;
-
-Ncov = D+1;     % Number of covariance function hyperparameters
-
-% Get noise and mean function info
-[Nnoise,noiseinfo] = gplite_noisefun('info',X_prior,noisefun,y_prior,s2);
-[Nmean,meaninfo] = gplite_meanfun('info',X_prior,meanfun,y_prior);
-
+% Hyperparameters
 if isempty(hyp0); hyp0 = zeros(Ncov+Nnoise+Nmean,1); end
-[Nhyp,N0] = size(hyp0);      % Hyperparameters
+Nhyp = size(hyp0,1);
 
 LB = [];
 UB = [];
@@ -79,67 +82,34 @@ if numel(hprior.df) < Nhyp; hprior.df = [hprior.df(:); NaN(Nhyp-numel(hprior.df)
 
 hprior.df(isnan(hprior.df)) = DfBase;
 
-% Default hyperparameter lower and upper bounds, if not specified
-width = max(X_prior) - min(X_prior);
-height = max(y_prior)-min(y_prior);
+% Set covariance/noise/mean functions hyperparameters lower bounds
+LB_cov = LB(1:Ncov); idx = isnan(LB_cov); LB_cov(idx) = covinfo.LB(idx);
+LB_noise = LB(Ncov+1:Ncov+Nnoise); idx = isnan(LB_noise); LB_noise(idx) = noiseinfo.LB(idx);
+LB_mean = LB(Ncov+Nnoise+1:Ncov+Nnoise+Nmean); idx = isnan(LB_mean); LB_mean(idx) = meaninfo.LB(idx);
 
-
-% Read hyperparameter bounds, if specified; otherwise set defaults
-LB_ell = LB(1:D);   
-idx = isnan(LB_ell);                 LB_ell(idx) = log(width(idx))+log(ToL);
-LB_sf = LB(D+1);        if isnan(LB_sf); LB_sf = log(height)+log(ToL); end
-
-% Set noise function hyperparameters lower bounds
-LB_noise = LB(Ncov+1:Ncov+Nnoise);
-idx = isnan(LB_noise);
-LB_noise(idx) = noiseinfo.LB(idx);
-
-% Set mean function hyperparameters lower bounds
-LB_mean = LB(Ncov+Nnoise+1:Ncov+Nnoise+Nmean);
-idx = isnan(LB_mean);
-LB_mean(idx) = meaninfo.LB(idx);
-
-UB_ell = UB(1:D);   
-idx = isnan(UB_ell);    UB_ell(idx) = log(width(idx)*10);
-UB_sf = UB(D+1);        if isnan(UB_sf); UB_sf = log(height*10); end
-
-% Set noise function hyperparameters upper bounds
-UB_noise = UB(Ncov+1:Ncov+Nnoise);
-idx = isnan(UB_noise);
-UB_noise(idx) = noiseinfo.UB(idx);
-
-% Set mean function hyperparameters upper bounds
-UB_mean = UB(Ncov+Nnoise+1:Ncov+Nnoise+Nmean);
-idx = isnan(UB_mean);
-UB_mean(idx) = meaninfo.UB(idx);
+% Set covariance/noise/mean functions hyperparameters upper bounds
+UB_cov = UB(1:Ncov); idx = isnan(UB_cov); UB_cov(idx) = covinfo.UB(idx);
+UB_noise = UB(Ncov+1:Ncov+Nnoise); idx = isnan(UB_noise); UB_noise(idx) = noiseinfo.UB(idx);
+UB_mean = UB(Ncov+Nnoise+1:Ncov+Nnoise+Nmean); idx = isnan(UB_mean); UB_mean(idx) = meaninfo.UB(idx);
 
 % Create lower and upper bounds
-LB = [LB_ell,LB_sf,LB_noise,LB_mean];
-UB = [UB_ell,UB_sf,UB_noise,UB_mean];
+LB = [LB_cov,LB_noise,LB_mean];
+UB = [UB_cov,UB_noise,UB_mean];
 UB = max(LB,UB);
 
 % Plausible bounds for generation of starting points
-PLB_ell = log(width)+0.5*log(ToL);
-PUB_ell = log(width);
+PLB_cov = covinfo.PLB;      PUB_cov = covinfo.PUB;
+PLB_noise = noiseinfo.PLB;  PUB_noise = noiseinfo.PUB;
+PLB_mean = meaninfo.PLB;    PUB_mean = meaninfo.PUB;
 
-PLB_sf = log(height)+0.5*log(ToL);
-PUB_sf = log(height);
-
-PLB_noise = noiseinfo.PLB;
-PUB_noise = noiseinfo.PUB;
-
-PLB_mean = meaninfo.PLB;
-PUB_mean = meaninfo.PUB;
-
-PLB = [PLB_ell,PLB_sf,PLB_noise,PLB_mean];
-PUB = [PUB_ell,PUB_sf,PUB_noise,PUB_mean];
-
+PLB = [PLB_cov,PLB_noise,PLB_mean];
+PUB = [PUB_cov,PUB_noise,PUB_mean];
 PLB = min(max(PLB,LB),UB);
 PUB = max(min(PUB,UB),LB);
 
+%% Hyperparameter optimization
 gptrain_options = optimoptions('fmincon','GradObj','on','Display','off');    
 
-%% Hyperparameter optimization
 if Ns > 0
     gptrain_options.TolFun = 0.1;  % Limited optimization
 else
@@ -150,7 +120,7 @@ hyp = zeros(Nhyp,Nopts);
 nll = [];
 
 % Initialize GP
-gp = gplite_post(hyp0(:,1),X,y,meanfun,noisefun,s2);
+gp = gplite_post(hyp0(:,1),X,y,covfun,meanfun,noisefun,s2);
 
 % Define objective functions for optimization
 gpoptimize_fun = @(hyp_) gp_objfun(hyp_(:),gp,hprior,0,0);
@@ -338,14 +308,6 @@ if nargout > 2
 end
 
 
-% Check GP posteriors
-% for s = 1:numel(gp.post)
-%     if ~all(isfinite(gp.post(s).L(:)))
-%         pause
-%     end
-% end
-
-
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -363,7 +325,7 @@ if nargin < 5 || isempty(swapsign); swapsign = 0; end
 compute_grad = nargout > 1 && ~gpflag;
 
 if gpflag
-    gp = gplite_post(hyp(1:end,:),gp.X,gp.y,gp.meanfun,gp.noisefun,gp.s2);
+    gp = gplite_post(hyp(1:end,:),gp.X,gp.y,gp.covfun,gp.meanfun,gp.noisefun,gp.s2);
     nlZ = gp;
 else
 
@@ -398,11 +360,7 @@ else
         nlZ = NaN;
         dnlZ = NaN(size(hyp));        
     end
-    
-%     if compute_grad
-%         dnlZ
-%     end
-        
+            
 end
 
 end
