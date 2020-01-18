@@ -281,7 +281,8 @@ if nargout > 2
     post.Lchol = Lchol;
     if gp.intmeanfun > 0
         post.intmean.HKinv = H*(L\(L'\eye(N))/sl);
-        post.intmean.T_plus = T_plus; % Reduced T (only positive variances)
+         % Inverse reduced T (only positive variances)
+        post.intmean.Tplusinv = T_plus\eye(size(T_plus));
         post.intmean.betabar = betabar;
     end
 end

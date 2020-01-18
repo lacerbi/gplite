@@ -110,18 +110,6 @@ if any(strcmpi(test,'intmean')) || all_flag
     gp = gplite_intmeantest(X,y,covfun,noisefun,s2);
 end
 
-if any(strcmpi(test,'rank1')) || all_flag
-    fprintf('---------------------------------------------------------------------------------\n');
-    fprintf('Check integrated basis functions...\n\n');
-
-    intmean = zeros(1,2*D+1);
-    intvar = inf(1,2*D+1);
-    intvar = [Inf,Inf*ones(1,D),zeros(1,D)];
-    meanfun_int = {meanfun,3,intmean,intvar};
-
-    gp = gplite_post(hyp0,X,y,covfun,meanfun_int,noisefun,s2,0,outwarpfun);
-end
-
 % Test plotting
 gplite_plot(gp);
 

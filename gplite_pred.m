@@ -109,12 +109,12 @@ for s = 1:Ns
         
         % Integrated mean function contribution to predicted variance
         if gp.intmeanfun
-            T_plus = gp.post(s).intmean.T_plus;
+            Tplus_inv = gp.post(s).intmean.Tplusinv;
             plus_idx = (gp.intmeanfun_var > 0);    % Non-delta parameters
             %C_int = R'*T*R;
             % Reduced-rank R if some basis function parameters are fixed
             if any(~plus_idx); R_mat = R_mat(plus_idx,:); end
-            fs2(:,s) = fs2(:,s) + sum(R_mat.*(T_plus\R_mat),1)';        
+            fs2(:,s) = fs2(:,s) + sum(R_mat.*(Tplus_inv*R_mat),1)';        
         end
         
         fs2(:,s) = max(fs2(:,s),0);          % remove numerical noise i.e. negative variances        
