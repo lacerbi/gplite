@@ -29,7 +29,7 @@ if nargout > 1
     fs2 = zeros(Nstar,Ns);
     ys2 = zeros(Nstar,Ns);    
 end
-if ~isempty(ystar) && nargout > 4
+if ~isempty(ystar) && nargout > 4 && ssflag
     lp = zeros(Nstar,Ns);
 else
     lp = [];
@@ -121,7 +121,7 @@ for s = 1:Ns
         ys2(:,s) = fs2(:,s) + sn2_star*sn2_mult;           % observed variance
 
         % Compute log probability of test inputs
-        if ~isempty(ystar) && nargout > 4
+        if ~isempty(ystar) && nargout > 4 && ssflag
             if outwarp_flag; error('output warping unsupported'); end
             lp(:,s) = -0.5*(ystar-ymu(:,s)).^2./ys2(:,s) - 0.5*log(2*pi*ys2(:,s));
         end
@@ -142,7 +142,7 @@ for s = 1:Ns
             % The problem is that the sample variance explodes for multiple
             % samples (because the predictive means can be very far apart)
                 
-            if nargout > 4
+            if ~isempty(ystar) && nargout > 4 && ssflag
                 lp(:,s) = lp(:,s) + log(abs(dwarp_dt));                
             end
         end
@@ -162,4 +162,7 @@ if Ns > 1 && ~ssflag
     end
     fmu = fbar;
     ymu = ybar;
+    if ~isempty(ystar) && nargout > 4
+        lp = -0.5*(ystar-ymu).^2./ys2 - 0.5*log(2*pi*ys2);
+    end
 end
